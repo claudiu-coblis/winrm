@@ -6,20 +6,24 @@ import (
 	"fmt"
 	"io"
 
-	"launchpad.net/gwacl/fork/http"
-	"launchpad.net/gwacl/fork/tls"
+	"crypto/tls"
+	"net/http"
+
+	ghttp "launchpad.net/gwacl/fork/http"
+	gtls "launchpad.net/gwacl/fork/tls"
 
 	"github.com/masterzen/winrm/soap"
 )
 
 type Client struct {
 	Parameters
-	username  string
-	password  string
-	useHTTPS  bool
-	url       string
-	http      HttpPost
-	transport *http.Transport
+	username   string
+	password   string
+	useHTTPS   bool
+	url        string
+	http       HttpPost
+	transport  *http.Transport
+	gtransport *ghttp.Transport
 }
 
 // NewClient will create a new remote client on url, connecting with user and password
@@ -35,20 +39,29 @@ func NewClient(endpoint *Endpoint, user, password string) (client *Client, err e
 func NewClientWithParameters(endpoint *Endpoint, user, password string, params *Parameters) (client *Client, err error) {
 	ok := false
 
+	var gtransport *ghttp.Transport
+	var transport *http.Transport
+
 	if isSetCertAndPrivateKey(endpoint.Cert, endpoint.Key) {
 		if endpoint.HTTPS == false {
 			return nil, fmt.Errorf("Invalid protocol for this transport type (CertAuth). Expected https")
 		}
+		gtransport, err = newGTransport(endpoint)
+		transport = nil
 		ok = true
 	} else if user != "" && password != "" {
 		ok = true
+		transport, err = newTransport(endpoint)
+		gtransport = nil
 	}
 
 	if ok == false {
 		return nil, fmt.Errorf("Invalid transport type")
 	}
 
-	transport, err := newTransport(endpoint)
+	if err != nil {
+		return nil, err
+	}
 
 	client = &Client{
 		Parameters: *params,
@@ -58,6 +71,7 @@ func NewClientWithParameters(endpoint *Endpoint, user, password string, params *
 		http:       Http_post,
 		useHTTPS:   endpoint.HTTPS,
 		transport:  transport,
+		gtransport: gtransport,
 	}
 	return
 }
@@ -86,6 +100,35 @@ func newTransport(endpoint *Endpoint) (*http.Transport, error) {
 		}
 
 		transport.TLSClientConfig.Certificates = []tls.Certificate{certPool}
+	}
+
+	return transport, nil
+}
+
+// newTransport will create a new HTTP Transport, with options specified within the endpoint configuration
+func newGTransport(endpoint *Endpoint) (*ghttp.Transport, error) {
+	transport := &ghttp.Transport{
+		TLSClientConfig: &gtls.Config{
+			InsecureSkipVerify: endpoint.Insecure,
+		},
+	}
+
+	if endpoint.CACert != nil && len(*endpoint.CACert) > 0 {
+		certPool, err := readCACerts(endpoint.CACert)
+		if err != nil {
+			return nil, err
+		}
+
+		transport.TLSClientConfig.RootCAs = certPool
+	}
+
+	if isSetCertAndPrivateKey(endpoint.Cert, endpoint.Key) {
+		certPool, err := gtls.X509KeyPair(*endpoint.Cert, *endpoint.Key)
+		if err != nil {
+			return nil, fmt.Errorf("Error parsing keypair: %s", err)
+		}
+
+		transport.TLSClientConfig.Certificates = []gtls.Certificate{certPool}
 	}
 
 	return transport, nil

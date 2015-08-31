@@ -3,7 +3,7 @@ package winrm
 import (
 	"github.com/masterzen/winrm/soap"
 	. "gopkg.in/check.v1"
-	"launchpad.net/gwacl/fork/tls"
+	gtls "launchpad.net/gwacl/fork/tls"
 )
 
 var key = `
@@ -103,9 +103,11 @@ func (s *WinRMSuite) TestNewClientCertAuth(c *C) {
 	c.Assert(client.password, Equals, "")
 	c.Assert(client.useHTTPS, Equals, true)
 
-	transport := client.transport.TLSClientConfig.Certificates
+	c.Assert(client.transport, IsNil)
 
-	certPool, err := tls.X509KeyPair(certBytes, keyBytes)
+	transport := client.gtransport.TLSClientConfig.Certificates
+
+	certPool, err := gtls.X509KeyPair(certBytes, keyBytes)
 
 	c.Assert(err, IsNil)
 
