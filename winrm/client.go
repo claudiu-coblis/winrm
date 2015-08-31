@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"io"
 
-	"launchpad.net/gwacl/fork/http"
-	"launchpad.net/gwacl/fork/tls"
-
 	"github.com/masterzen/winrm/soap"
 )
 
@@ -19,7 +16,7 @@ type Client struct {
 	useHTTPS  bool
 	url       string
 	http      HttpPost
-	transport *http.Transport
+	transport *Transport
 }
 
 // NewClient will create a new remote client on url, connecting with user and password
@@ -30,12 +27,20 @@ func NewClient(endpoint *Endpoint, user, password string) (client *Client, err e
 	return
 }
 
+// NewX509Client will create a new remote client on url, connecting with certificate
+// This function doesn't connect (connection happens only when CreateShell is called)
+func NewX509Client(endpoint *Endpoint) (client *Client, err error) {
+	params := DefaultParameters()
+	client, err = NewClientWithParameters(endpoint, "", "", params)
+	return
+}
+
 // NewClient will create a new remote client on url, connecting with user and password
 // This function doesn't connect (connection happens only when CreateShell is called)
 func NewClientWithParameters(endpoint *Endpoint, user, password string, params *Parameters) (client *Client, err error) {
 	ok := false
 
-	if endpoint.Cert != nil && endpoint.Key != nil && len(*endpoint.Cert) > 0 && len(*endpoint.Key) > 0 {
+	if isSetCertAndPrivateKey(endpoint.Cert, endpoint.Key) {
 		if endpoint.HTTPS == false {
 			return nil, fmt.Errorf("Invalid protocol for this transport type (CertAuth). Expected https")
 		}
@@ -62,33 +67,28 @@ func NewClientWithParameters(endpoint *Endpoint, user, password string, params *
 	return
 }
 
+// SetTransport override transport from client
+func (client *Client) SetTransport(tr *Transport) {
+	client.transport = tr
+}
+
 // newTransport will create a new HTTP Transport, with options specified within the endpoint configuration
-func newTransport(endpoint *Endpoint) (*http.Transport, error) {
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: endpoint.Insecure,
-		},
-	}
+func newTransport(endpoint *Endpoint) (*Transport, error) {
+	transport, err := NewTransport(endpoint)
 
-	if endpoint.CACert != nil && len(*endpoint.CACert) > 0 {
-		certPool, err := readCACerts(endpoint.CACert)
-		if err != nil {
-			return nil, err
-		}
-
-		transport.TLSClientConfig.RootCAs = certPool
-	}
-
-	if endpoint.Cert != nil && endpoint.Key != nil && len(*endpoint.Cert) > 0 && len(*endpoint.Key) > 0 {
-		certPool, err := tls.X509KeyPair(*endpoint.Cert, *endpoint.Key)
-		if err != nil {
-			return nil, fmt.Errorf("Error parsing keypair: %s", err)
-		}
-
-		transport.TLSClientConfig.Certificates = []tls.Certificate{certPool}
+	if err != nil {
+		return nil, fmt.Errorf("Failed to create new transport: %s", err)
 	}
 
 	return transport, nil
+}
+
+func isSetCertAndPrivateKey(cert *[]byte, key *[]byte) bool {
+	if cert != nil && key != nil && len(*cert) > 0 && len(*key) > 0 {
+		return true
+	}
+
+	return false
 }
 
 func readCACerts(certs *[]byte) (*x509.CertPool, error) {

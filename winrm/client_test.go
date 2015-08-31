@@ -103,15 +103,16 @@ func (s *WinRMSuite) TestNewClientCertAuth(c *C) {
 	c.Assert(client.password, Equals, "")
 	c.Assert(client.useHTTPS, Equals, true)
 
-	transport := client.transport.TLSClientConfig.Certificates
+	transport := *client.transport
+	tr := transport.transport.TLSClientConfig.Certificates
 
 	certPool, err := tls.X509KeyPair(certBytes, keyBytes)
 
 	c.Assert(err, IsNil)
 
-	c.Assert(transport[0].Certificate, DeepEquals, certPool.Certificate)
+	c.Assert(tr[0].Certificate, DeepEquals, certPool.Certificate)
 
-	c.Assert(transport[0].PrivateKey, DeepEquals, certPool.PrivateKey)
+	c.Assert(tr[0].PrivateKey, DeepEquals, certPool.PrivateKey)
 
 }
 
@@ -125,7 +126,7 @@ func (s *WinRMSuite) TestNewClientCertAuthParseKeyPairFailure(c *C) {
 	invalid_key := []byte("AAA")
 	_, err := NewClient(&Endpoint{Host: "localhost", Port: 5986, HTTPS: true, Cert: &certBytes, Key: &invalid_key}, "", "")
 
-	c.Assert(err, ErrorMatches, "Error parsing keypair: crypto/tls: failed to parse key PEM data")
+	c.Assert(err, ErrorMatches, "Failed to create new transport: Error parsing keypair: crypto/tls: failed to parse key PEM data")
 }
 
 func (s *WinRMSuite) TestClientCreateShell(c *C) {
