@@ -6,35 +6,20 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/masterzen/winrm/soap"
 )
 
-func body(response *http.Response) (content string, err error) {
-	contentType := response.Header.Get("Content-Type")
-	if strings.HasPrefix(contentType, soapXML) {
-		var body []byte
-		body, err = ioutil.ReadAll(response.Body)
-		response.Body.Close()
-		if err != nil {
-			err = fmt.Errorf("error while reading request body %s", err)
-			return
-		}
-
-		content = string(body)
-		return
-	} else {
-		err = fmt.Errorf("invalid content-type: %s", contentType)
-		return
-	}
-	return
-}
+var mutex = &sync.Mutex{}
 
 type Transporter interface {
-	Post(client *Client, request *soap.SoapMessage) (string, error)
+	Post(url, username, password string, request *soap.SoapMessage) (response string, err error)
 }
 
-func NewTransport(endpoint *Endpoint) (*Transport, error) {
+// newTransport will create a new HTTP Transport, with options specified within the endpoint configuration
+func newTransport(endpoint *Endpoint) (*Transport, error) {
+	mutex.Lock()
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: endpoint.Insecure,
@@ -44,6 +29,7 @@ func NewTransport(endpoint *Endpoint) (*Transport, error) {
 	if endpoint.CACert != nil && len(*endpoint.CACert) > 0 {
 		certPool, err := readCACerts(endpoint.CACert)
 		if err != nil {
+			mutex.Unlock()
 			return nil, err
 		}
 
@@ -53,23 +39,26 @@ func NewTransport(endpoint *Endpoint) (*Transport, error) {
 	if isSetCertAndPrivateKey(endpoint.Cert, endpoint.Key) {
 		certPool, err := tls.X509KeyPair(*endpoint.Cert, *endpoint.Key)
 		if err != nil {
+			mutex.Unlock()
 			return nil, fmt.Errorf("Error parsing keypair: %s", err)
 		}
 
 		transport.TLSClientConfig.Certificates = []tls.Certificate{certPool}
 	}
 
+	mutex.Unlock()
+
 	return &Transport{transport}, nil
 }
 
 type Transport struct {
-	transport *http.Transport
+	Transport *http.Transport
 }
 
-func (s *Transport) Post(client *Client, request *soap.SoapMessage) (response string, err error) {
-	httpClient := &http.Client{Transport: s.transport}
+func (s *Transport) Post(url, username, password string, request *soap.SoapMessage) (response string, err error) {
+	httpClient := &http.Client{Transport: s.Transport}
 
-	req, err := http.NewRequest("POST", client.url, strings.NewReader(request.String()))
+	req, err := http.NewRequest("POST", url, strings.NewReader(request.String()))
 	if err != nil {
 		err = fmt.Errorf("impossible to create http request %s", err)
 		return
@@ -79,12 +68,12 @@ func (s *Transport) Post(client *Client, request *soap.SoapMessage) (response st
 
 	ok := false
 
-	transport := *s.transport
+	transport := *s.Transport
 	if transport.TLSClientConfig.Certificates != nil {
 		req.Header.Add("Authorization", "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual")
 		ok = true
-	} else if client.username != "" && client.password != "" {
-		req.SetBasicAuth(client.username, client.password)
+	} else if username != "" && password != "" {
+		req.SetBasicAuth(username, password)
 		ok = true
 	}
 

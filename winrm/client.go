@@ -72,17 +72,6 @@ func (client *Client) SetTransport(tr *Transport) {
 	client.transport = tr
 }
 
-// newTransport will create a new HTTP Transport, with options specified within the endpoint configuration
-func newTransport(endpoint *Endpoint) (*Transport, error) {
-	transport, err := NewTransport(endpoint)
-
-	if err != nil {
-		return nil, fmt.Errorf("Failed to create new transport: %s", err)
-	}
-
-	return transport, nil
-}
-
 func isSetCertAndPrivateKey(cert *[]byte, key *[]byte) bool {
 	if cert != nil && key != nil && len(*cert) > 0 && len(*key) > 0 {
 		return true
